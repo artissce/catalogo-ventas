@@ -11,6 +11,13 @@
       "precio": 250.0,
       "stock": 3,
       "descripcion_corta": "Pantalones azules"
+    },
+    {
+      "nombre": "Pantalones azules",
+      "precio": 250.0,
+      "stock": 3,
+      "descripcion_corta": "Pantalones azules",
+      "imagen_url": "https://raw.githubusercontent.com/artissce/catalogo-ventas/main/datos/imagenes/img_1780675197.jpg"
     }
   ]
 }
