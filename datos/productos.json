@@ -1,3 +1,11 @@
 {
-  "productos": []
+  "productos": [
+    {
+      "nombre": "pasamonta\u00f1as",
+      "precio": 100.0,
+      "stock": 8,
+      "descripcion_corta": "",
+      "imagen_url": "https://raw.githubusercontent.com/artissce/catalogo-ventas/main/datos/imagenes/img_1780681380.jpg"
+    }
+  ]
 }
