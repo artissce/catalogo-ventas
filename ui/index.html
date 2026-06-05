@@ -189,7 +189,7 @@
             try {
                 // Detectar si estamos en GitHub Pages o local
                 const isGitHubPages = window.location.hostname.includes('github.io');
-                const basePath = isGitHubPages ? '/agente_telegram' : '..';
+                const basePath = isGitHubPages ? '/catalogo-ventas' : '..';
                 const response = await fetch(`${basePath}/datos/productos.json`);
                 
                 if (!response.ok) {
