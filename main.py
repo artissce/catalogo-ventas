@@ -8,8 +8,12 @@ from fastapi import FastAPI, Request
 from google import genai
 from dotenv import load_dotenv
 from github_tools import agregar_producto_json, subir_imagen_a_github, obtener_productos_json, reemplazar_productos_json
+import asyncio
 
 load_dotenv()
+
+# Candado global para evitar condiciones de carrera al escribir en GitHub
+candado_github = asyncio.Lock()
 
 app = FastAPI(title="Agente Catálogo Bot")
 cliente_ia = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
@@ -81,8 +85,11 @@ async def recibir_mensaje(request: Request):
         try:
             respuesta = cliente_ia.models.generate_content(model='gemini-2.5-flash', contents=prompt)
             texto_ia = respuesta.text.strip()
-            if texto_ia.startswith("```json"): texto_ia = texto_ia.replace("json", "").replace("```", "").strip()
-            elif texto_ia.startswith("```"): texto_ia = texto_ia.replace("", "").strip()
+            
+            if texto_ia.startswith("```json"):
+                texto_ia = texto_ia.replace("```json", "").replace("```", "").strip()
+            elif texto_ia.startswith("```"):
+                texto_ia = texto_ia.replace("```", "").strip()
                 
             datos_ia = json.loads(texto_ia)
             
@@ -92,80 +99,79 @@ async def recibir_mensaje(request: Request):
                 
             intencion = datos_ia.get("intencion", "DESCONOCIDO")
             termino = datos_ia.get("termino_busqueda", "").lower()
-            productos_actuales = obtener_productos_json()
             
-            # --- RUTAS DEL CRUD ---
-            
-            if intencion == "EXPORTAR":
-                responder_en_telegram(chat_id, "📊 Generando archivo Excel/CSV...")
-                # Crear CSV en memoria
-                output = io.StringIO()
-                if productos_actuales:
-                    campos = ["nombre", "precio", "stock", "descripcion_corta", "imagen_url"]
-                    escritor = csv.DictWriter(output, fieldnames=campos, extrasaction='ignore')
-                    escritor.writeheader()
+            # ==========================================
+            # SECCIÓN CRÍTICA PROTEGIDA POR EL CANDADO
+            # ==========================================
+            async with candado_github:
+                productos_actuales = obtener_productos_json()
+                
+                if intencion == "EXPORTAR":
+                    responder_en_telegram(chat_id, "📊 Generando archivo Excel/CSV...")
+                    output = io.StringIO()
+                    if productos_actuales:
+                        campos = ["nombre", "precio", "stock", "descripcion_corta", "imagen_url"]
+                        escritor = csv.DictWriter(output, fieldnames=campos, extrasaction='ignore')
+                        escritor.writeheader()
+                        for p in productos_actuales:
+                            escritor.writerow(p)
+                    else:
+                        output.write("El catalogo esta vacio")
+                    enviar_documento_telegram(chat_id, "catalogo.csv", output.getvalue().encode('utf-8'))
+                    
+                elif intencion == "BUSCAR":
+                    resultados = [p for p in productos_actuales if termino in p.get("nombre", "").lower() or termino in p.get("descripcion_corta", "").lower()]
+                    if resultados:
+                        respuesta_txt = f"📦 Encontré:\n"
+                        for p in resultados:
+                            respuesta_txt += f"▫️ {p['nombre']} - ${p['precio']} (Stock: {p.get('stock',0)})\n"
+                        responder_en_telegram(chat_id, respuesta_txt)
+                    else:
+                        responder_en_telegram(chat_id, f"🤷‍♀️ No encontré nada relacionado con '{termino}'.")
+                        
+                elif intencion == "BORRAR":
+                    productos_filtrados = [p for p in productos_actuales if termino not in p.get("nombre", "").lower()]
+                    if len(productos_filtrados) < len(productos_actuales):
+                        exito = reemplazar_productos_json(productos_filtrados, f"fix: borrar {termino}")
+                        if exito: responder_en_telegram(chat_id, f"🗑️ Se eliminó '{termino}' del catálogo.")
+                        else: responder_en_telegram(chat_id, "❌ Error al borrar en GitHub.")
+                    else:
+                        responder_en_telegram(chat_id, f"No encontré ningún producto que coincida con '{termino}' para borrar.")
+
+                elif intencion == "EDITAR":
+                    editado = False
                     for p in productos_actuales:
-                        escritor.writerow(p)
-                else:
-                    output.write("El catalogo esta vacio")
-                
-                # Enviar a Telegram
-                enviar_documento_telegram(chat_id, "catalogo.csv", output.getvalue().encode('utf-8'))
-                
-            elif intencion == "BUSCAR":
-                resultados = [p for p in productos_actuales if termino in p.get("nombre", "").lower() or termino in p.get("descripcion_corta", "").lower()]
-                if resultados:
-                    respuesta_txt = f"📦 Encontré:\n"
-                    for p in resultados:
-                        respuesta_txt += f"▫️ {p['nombre']} - ${p['precio']} (Stock: {p.get('stock',0)})\n"
-                    responder_en_telegram(chat_id, respuesta_txt)
-                else:
-                    responder_en_telegram(chat_id, f"🤷‍♀️ No encontré nada relacionado con '{termino}'.")
+                        if termino in p.get("nombre", "").lower():
+                            nuevo_prod = datos_ia.get("producto", {})
+                            if nuevo_prod.get("precio", 0) > 0: p["precio"] = nuevo_prod["precio"]
+                            if nuevo_prod.get("stock") is not None: p["stock"] = nuevo_prod["stock"]
+                            if nuevo_prod.get("descripcion_corta"): p["descripcion_corta"] = nuevo_prod["descripcion_corta"]
+                            editado = True
+                            break 
                     
-            elif intencion == "BORRAR":
-                productos_filtrados = [p for p in productos_actuales if termino not in p.get("nombre", "").lower()]
-                if len(productos_filtrados) < len(productos_actuales):
-                    exito = reemplazar_productos_json(productos_filtrados, f"fix: borrar {termino}")
-                    if exito: responder_en_telegram(chat_id, f"🗑️ Se eliminó '{termino}' del catálogo.")
-                    else: responder_en_telegram(chat_id, "❌ Error al borrar en GitHub.")
-                else:
-                    responder_en_telegram(chat_id, f"No encontré ningún producto que coincida con '{termino}' para borrar.")
+                    if editado:
+                        exito = reemplazar_productos_json(productos_actuales, f"fix: actualizar {termino}")
+                        if exito: responder_en_telegram(chat_id, f"✏️ ¡Se actualizó '{termino}' correctamente!")
+                        else: responder_en_telegram(chat_id, "❌ Error al actualizar en GitHub.")
+                    else:
+                        responder_en_telegram(chat_id, f"No encontré '{termino}' para editarlo.")
+                        
+                elif intencion == "AGREGAR":
+                    producto_final = datos_ia.get("producto", {})
+                    if "photo" in mensaje:
+                        responder_en_telegram(chat_id, "📸 Procesando imagen...")
+                        foto_id = mensaje["photo"][-1]["file_id"]
+                        bytes_imagen = descargar_foto_telegram(foto_id)
+                        if bytes_imagen:
+                            url_imagen = subir_imagen_a_github(f"img_{int(time.time())}.jpg", bytes_imagen)
+                            if url_imagen: producto_final["imagen_url"] = url_imagen
 
-            elif intencion == "EDITAR":
-                editado = False
-                for p in productos_actuales:
-                    if termino in p.get("nombre", "").lower():
-                        # Actualizamos solo si la IA detectó cambios
-                        nuevo_prod = datos_ia.get("producto", {})
-                        if nuevo_prod.get("precio", 0) > 0: p["precio"] = nuevo_prod["precio"]
-                        if nuevo_prod.get("stock") is not None: p["stock"] = nuevo_prod["stock"]
-                        if nuevo_prod.get("descripcion_corta"): p["descripcion_corta"] = nuevo_prod["descripcion_corta"]
-                        editado = True
-                        break # Solo editamos el primero que coincida
+                    exito = agregar_producto_json(producto_final)
+                    if exito: responder_en_telegram(chat_id, f"✅ ¡'{producto_final.get('nombre')}' agregado!")
+                    else: responder_en_telegram(chat_id, "❌ Error al guardar en GitHub.")
                 
-                if editado:
-                    exito = reemplazar_productos_json(productos_actuales, f"fix: actualizar {termino}")
-                    if exito: responder_en_telegram(chat_id, f"✏️ ¡Se actualizó '{termino}' correctamente!")
-                    else: responder_en_telegram(chat_id, "❌ Error al actualizar en GitHub.")
                 else:
-                    responder_en_telegram(chat_id, f"No encontré '{termino}' para editarlo.")
-                    
-            elif intencion == "AGREGAR":
-                producto_final = datos_ia.get("producto", {})
-                if "photo" in mensaje:
-                    responder_en_telegram(chat_id, "📸 Procesando imagen...")
-                    foto_id = mensaje["photo"][-1]["file_id"]
-                    bytes_imagen = descargar_foto_telegram(foto_id)
-                    if bytes_imagen:
-                        url_imagen = subir_imagen_a_github(f"img_{int(time.time())}.jpg", bytes_imagen)
-                        if url_imagen: producto_final["imagen_url"] = url_imagen
-
-                exito = agregar_producto_json(producto_final)
-                if exito: responder_en_telegram(chat_id, f"✅ ¡'{producto_final.get('nombre')}' agregado!")
-                else: responder_en_telegram(chat_id, "❌ Error al guardar en GitHub.")
-            
-            else:
-                responder_en_telegram(chat_id, "🤔 No entendí. Puedes Agregar, Buscar, Editar, Borrar o Exportar.")
+                    responder_en_telegram(chat_id, "🤔 No entendí. Puedes Agregar, Buscar, Editar, Borrar o Exportar.")
                 
         except Exception as e:
             responder_en_telegram(chat_id, f"❌ Ocurrió un error: {e}")
