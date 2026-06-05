@@ -51,7 +51,18 @@ async def recibir_mensaje(request: Request):
                 contents=prompt
             )
             
-            datos_producto = json.loads(respuesta.text.strip())
+            # --- NUEVA LÓGICA DE LIMPIEZA ---
+            texto_ia = respuesta.text.strip()
+            
+            # Le quitamos las etiquetas de Markdown si la IA se las puso
+            if texto_ia.startswith("```json"):
+                texto_ia = texto_ia.replace("```json", "").replace("```", "").strip()
+            elif texto_ia.startswith("```"):
+                texto_ia = texto_ia.replace("```", "").strip()
+                
+            datos_producto = json.loads(texto_ia)
+            # --------------------------------
+            
             contenido_github = json.dumps({"productos": [datos_producto]}, indent=2)
             
             # --- LAS MANOS ---
