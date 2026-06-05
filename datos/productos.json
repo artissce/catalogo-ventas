@@ -5,6 +5,12 @@
       "precio": 250.0,
       "stock": 3,
       "descripcion_corta": "Nuevos pantalones azules disponibles! \ud83d\udc56\u2728"
+    },
+    {
+      "nombre": "Pantalones azules",
+      "precio": 250.0,
+      "stock": 3,
+      "descripcion_corta": "Pantalones azules"
     }
   ]
 }
