@@ -6,10 +6,8 @@ on:
   push:
     branches: 
       [ main ]
-    paths:
-    - '**'
-    - '.github/workflows/catalogo-ventas-AutoDeployTrigger-02314ca2-3b90-4125-a0d5-03cfb4779058.yml'
-
+    paths-ignore:
+      - 'datos/**'
   # Allow manual trigger 
   workflow_dispatch:      
 
