@@ -67,3 +67,43 @@ def subir_imagen_a_github(nombre_archivo, bytes_imagen):
         # Si se subió bien, devolvemos la URL pública para verla
         return f"https://raw.githubusercontent.com/{REPO_OWNER}/{REPO_NAME}/main/{ruta}"
     return None
+
+def obtener_productos_json():
+    """Descarga el JSON actual y lo devuelve como una lista de diccionarios de Python"""
+    url = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/contents/datos/productos.json"
+    headers = obtener_headers()
+    
+    response = requests.get(url, headers=headers)
+    if response.status_code == 200:
+        data = response.json()
+        contenido_decodificado = base64.b64decode(data['content']).decode('utf-8')
+        try:
+            return json.loads(contenido_decodificado).get("productos", [])
+        except json.JSONDecodeError:
+            return []
+    return []
+
+def reemplazar_productos_json(nueva_lista, mensaje_commit):
+    """Sobrescribe el JSON con una lista nueva (útil para Editar y Borrar)"""
+    url = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/contents/datos/productos.json"
+    headers = obtener_headers()
+    
+    # 1. Obtener el SHA actual
+    response = requests.get(url, headers=headers)
+    sha = None
+    if response.status_code == 200:
+        sha = response.json().get('sha')
+        
+    # 2. Preparar el nuevo contenido
+    nuevo_contenido = json.dumps({"productos": nueva_lista}, indent=2)
+    payload = {
+        "message": mensaje_commit,
+        "content": base64.b64encode(nuevo_contenido.encode('utf-8')).decode('utf-8'),
+        "branch": "main"
+    }
+    if sha:
+        payload["sha"] = sha
+        
+    # 3. Hacer el PUT
+    res = requests.put(url, headers=headers, json=payload)
+    return res.status_code in [200, 201]
