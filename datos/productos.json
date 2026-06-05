@@ -1,3 +1,10 @@
 {
-  "productos": []
+  "productos": [
+    {
+      "nombre": "pasamonta\u00f1as",
+      "precio": 100.0,
+      "stock": 8,
+      "descripcion_corta": ""
+    }
+  ]
 }
