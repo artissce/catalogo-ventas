@@ -1,0 +1,49 @@
+name: Trigger auto deployment for catalogo-ventas
+
+# When this action will be executed
+on:
+  # Automatically trigger it when detected changes in repo
+  push:
+    branches: 
+      [ main ]
+    paths:
+    - '**'
+    - '.github/workflows/catalogo-ventas-AutoDeployTrigger-02314ca2-3b90-4125-a0d5-03cfb4779058.yml'
+
+  # Allow manual trigger 
+  workflow_dispatch:      
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    permissions: 
+      id-token: write #This is required for requesting the OIDC JWT Token
+      contents: read #Required when GH token is used to authenticate with private repo
+
+    steps:
+      - name: Checkout to the branch
+        uses: actions/checkout@v2
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.CATALOGOVENTAS_AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.CATALOGOVENTAS_AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.CATALOGOVENTAS_AZURE_SUBSCRIPTION_ID }}
+
+      - name: Build and push container image to registry
+        uses: azure/container-apps-deploy-action@v2
+        with:
+          appSourcePath: ${{ github.workspace }}
+          _dockerfilePathKey_: _dockerfilePath_
+          _targetLabelKey_: _targetLabel_
+          registryUrl: acrcatalogo.azurecr.io
+          registryUsername: ${{ secrets.CATALOGOVENTAS_REGISTRY_USERNAME }}
+          registryPassword: ${{ secrets.CATALOGOVENTAS_REGISTRY_PASSWORD }}
+          containerAppName: catalogo-ventas
+          resourceGroup: rg-bmw-prep
+          imageToBuild: acrcatalogo.azurecr.io/catalogo-ventas:${{ github.sha }}
+          _buildArgumentsKey_: |
+            _buildArgumentsValues_
+
+
